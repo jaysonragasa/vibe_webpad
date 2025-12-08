@@ -732,7 +732,8 @@
         };
 
         const App = (function() {
-            const state = { tabs: [], activeTabId: null, isDark: true };
+            const state = { tabs: [], activeTabId: null, isDark: true, fileCounter: 1 };
+
             let debounceTimer = null;
 
             const _handleContextChange = () => {
@@ -745,7 +746,15 @@
 
             const commands = {
                 newTab: (name, lang, content) => {
-                    const tab = TabFactory.create(name, lang, content); state.tabs.push(tab); tab.model.onDidChangeContent(_handleContextChange); commands.activateTab(tab.id);
+                    if (!name) {
+                        // Use and increment the fileCounter if no name is provided
+                        name = `new file ${state.fileCounter}`;
+                        state.fileCounter++;
+                    }
+                    const tab = TabFactory.create(name, lang, content); 
+                    state.tabs.push(tab); 
+                    tab.model.onDidChangeContent(_handleContextChange); 
+                    commands.activateTab(tab.id);
                 },
                 togglePluginMenu: (e) => {
                     e.stopPropagation();
@@ -773,7 +782,11 @@
                     const tab = state.tabs.find(t => t.id === id); if (!tab) return; state.activeTabId = id; EditorService.setModel(tab.model); UIManager.renderTabs(state.tabs, id, commands.activateTab, commands.closeTab); UIManager.updateStatus(EditorService.getPosition(), EditorService.getLength(), tab.language); WorkspaceManager.broadcastContext(tab.model.getValue());
                 },
                 closeTab: (id) => {
-                    if (state.tabs.length <= 1) return; const idx = state.tabs.findIndex(t => t.id === id); state.tabs[idx].model.dispose(); state.tabs.splice(idx, 1); commands.activateTab(state.tabs[Math.max(0, idx - 1)].id);
+                    if (state.tabs.length <= 1) return; 
+                    const idx = state.tabs.findIndex(t => t.id === id); 
+                    state.tabs[idx].model.dispose(); 
+                    state.tabs.splice(idx, 1); 
+                    commands.activateTab(state.tabs[Math.max(0, idx - 1)].id);
                 },
                 editorAction: (act) => EditorService.trigger(act),
                 changeLanguage: (lang) => { const t = state.tabs.find(x => x.id === state.activeTabId); if (t) { monaco.editor.setModelLanguage(t.model, lang); t.language = lang; UIManager.updateStatus(null, EditorService.getLength(), lang); } },
@@ -790,7 +803,10 @@
                 
                 triggerOpen: () => document.getElementById('fileInput').click(),
                 openFile: (input) => {
-                    const f = input.files[0]; if(!f) return; const r = new FileReader(); r.onload = (e) => commands.newTab(f.name, 'javascript', e.target.result); r.readAsText(f);
+                    const f = input.files[0]; if(!f) return; const r = new FileReader(); 
+                    // When opening a file, we don't increment the counter, but use the file's name.
+                    r.onload = (e) => commands.newTab(f.name, 'javascript', e.target.result); 
+                    r.readAsText(f);
                 },
                 promptSave: () => document.getElementById('saveModal').classList.add('active'),
                 closeSaveModal: () => document.getElementById('saveModal').classList.remove('active'),
@@ -828,6 +844,7 @@
                 EditorService.init('monaco-editor', (editor) => {
                     editor.onDidChangeCursorPosition((e) => UIManager.updateStatus(e.position, EditorService.getLength()));
                     document.getElementById('editor-loader').style.display = 'none';
+                    // Initial file opens as "new file 1" and increments counter to 2
                     commands.newTab(null, 'json', '{\n  "demo": "Drag & Drop Plugins",\n  "instructions": "Drag the Code icon from the left bar to the Right side or Bottom."\n}');
                     WorkspaceManager.addPlugin('json-tree', 'left');
                 });
