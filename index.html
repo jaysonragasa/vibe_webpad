@@ -1,0 +1,773 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>WebPad++</title>
+    
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .loader {
+            border: 3px solid #f3f3f3; border-radius: 50%; border-top: 3px solid #3498db;
+            width: 24px; height: 24px; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        body { overflow: hidden; }
+
+        .modal { transition: opacity 0.2s ease-in-out; opacity: 0; pointer-events: none; }
+        .modal.active { opacity: 1; pointer-events: auto; }
+        
+        .custom-scroll::-webkit-scrollbar { width: 6px; height: 6px; }
+        .custom-scroll::-webkit-scrollbar-track { background: transparent; }
+        .custom-scroll::-webkit-scrollbar-thumb { background-color: rgba(156, 163, 175, 0.5); border-radius: 3px; }
+
+        /* Plugin Specific Styles */
+        .json-tree { font-family: 'Consolas', 'Monaco', monospace; font-size: 12px; line-height: 1.5; white-space: nowrap; }
+        .json-key { color: #0451a5; }
+        .dark .json-key { color: #9cdcfe; }
+        .json-string { color: #a31515; }
+        .dark .json-string { color: #ce9178; }
+        .json-number { color: #098658; }
+        .dark .json-number { color: #b5cea8; }
+        .json-boolean { color: #0000ff; }
+        .dark .json-boolean { color: #569cd6; }
+        .json-null { color: #0000ff; }
+        .dark .json-null { color: #569cd6; }
+        
+        .json-node-children { padding-left: 1.25rem; border-left: 1px solid rgba(128, 128, 128, 0.1); margin-left: 0.25rem; }
+        .json-caret { display: inline-block; width: 14px; text-align: center; transition: transform 0.1s ease; color: #888; margin-right: 2px; }
+        .json-caret.rotated { transform: rotate(90deg); }
+
+        .hex-grid { font-family: 'Courier New', monospace; display: grid; grid-template-columns: 80px 1fr; gap: 1rem; }
+        .hex-offset { color: #666; }
+        .hex-bytes { color: #000; letter-spacing: 2px; }
+        .dark .hex-bytes { color: #ccc; }
+        .hex-ascii { color: #444; }
+        .dark .hex-ascii { color: #aaa; }
+
+        /* Resizer Styles */
+        .resizer-v { width: 4px; cursor: col-resize; transition: background 0.2s; z-index: 20; }
+        .resizer-v:hover, .resizer-v.resizing { background: #007acc; }
+        
+        .resizer-h { height: 4px; cursor: row-resize; transition: background 0.2s; z-index: 20; width: 100%; }
+        .resizer-h:hover, .resizer-h.resizing { background: #007acc; }
+        
+        /* Vertical Text */
+        .vertical-text { writing-mode: vertical-rl; text-orientation: mixed; transform: rotate(180deg); }
+
+        /* Drag & Drop Dropzones */
+        .drop-zone-indicator {
+            position: absolute; background: rgba(0, 122, 204, 0.3); border: 2px dashed #007acc;
+            pointer-events: none; z-index: 100; display: none;
+        }
+
+        /* Unpinned / Floating Panel Logic */
+        .panel-content { transition: transform 0.2s ease, opacity 0.2s ease; }
+        
+        .panel-floating-left { position: absolute; left: 48px; top: 0; bottom: 0; z-index: 50; box-shadow: 5px 0 15px rgba(0,0,0,0.3); height: 100%; }
+        .panel-floating-right { position: absolute; right: 48px; top: 0; bottom: 0; z-index: 50; box-shadow: -5px 0 15px rgba(0,0,0,0.3); height: 100%; }
+        
+        /* Bottom floating now sits ABOVE the tab bar (which is 32px high) */
+        .panel-floating-bottom { position: absolute; bottom: 32px; left: 0; right: 0; z-index: 50; box-shadow: 0 -5px 15px rgba(0,0,0,0.3); }
+
+        /* Hidden state for auto-collapse */
+        .panel-collapsed { display: none !important; }
+    </style>
+    
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        vsDark: '#1e1e1e', vsDarkPanel: '#252526', vsBlue: '#007acc', vsText: '#cccccc'
+                    }
+                }
+            }
+        }
+    </script>
+</head>
+<body class="bg-gray-100 text-gray-800 dark:bg-vsDark dark:text-vsText h-screen flex flex-col font-sans transition-colors duration-200">
+
+    <!-- TOP TOOLBAR -->
+    <div class="flex items-center px-2 py-2 gap-2 bg-white dark:bg-[#333333] border-b border-gray-300 dark:border-[#252526] shadow-sm shrink-0 z-20">
+        <div class="flex items-center mr-3 select-none shrink-0">
+            <span class="font-bold text-lg text-blue-600 dark:text-blue-400">WebPad</span>
+            <span class="font-bold text-lg text-emerald-500">++</span>
+        </div>
+
+        <div class="flex items-center gap-1 border-r border-gray-300 dark:border-gray-600 pr-2 shrink-0">
+            <button onclick="app.commands.newTab()" title="New File" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-white/10 transition-colors"><i class="fa-solid fa-file-circle-plus text-emerald-600 dark:text-emerald-400"></i></button>
+            <button onclick="app.commands.triggerOpen()" title="Open File" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-white/10 transition-colors"><i class="fa-solid fa-folder-open text-yellow-600 dark:text-yellow-400"></i></button>
+            <input type="file" id="fileInput" class="hidden" onchange="app.commands.openFile(this)">
+            <button onclick="app.commands.promptSave()" title="Save File" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-white/10 transition-colors"><i class="fa-solid fa-floppy-disk text-blue-600 dark:text-blue-400"></i></button>
+        </div>
+
+        <div class="flex items-center gap-1 border-r border-gray-300 dark:border-gray-600 pr-2 shrink-0">
+            <button onclick="app.commands.editorAction('undo')" title="Undo" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-white/10 transition-colors"><i class="fa-solid fa-rotate-left"></i></button>
+            <button onclick="app.commands.editorAction('redo')" title="Redo" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-white/10 transition-colors"><i class="fa-solid fa-rotate-right"></i></button>
+        </div>
+
+        <div class="flex items-center gap-1 border-r border-gray-300 dark:border-gray-600 pr-2 shrink-0 relative">
+            <button onclick="app.commands.togglePluginMenu(event)" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-white/10 transition-colors flex items-center gap-1">
+                <i class="fa-solid fa-plug text-purple-600 dark:text-purple-400"></i>
+                <span class="text-xs font-semibold">Plugins</span>
+            </button>
+            <div class="hidden absolute top-full left-0 mt-1 w-48 bg-white dark:bg-[#252526] border border-gray-200 dark:border-[#1e1e1e] shadow-xl rounded z-50 py-1" id="pluginListMenu"></div>
+        </div>
+
+        <div class="flex items-center gap-2 ml-auto shrink-0">
+            <select id="langSelect" onchange="app.commands.changeLanguage(this.value)" class="h-8 px-2 text-xs rounded border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-[#3c3c3c] focus:outline-none focus:border-blue-500">
+                <option value="javascript">JavaScript</option>
+                <option value="json">JSON</option>
+                <option value="html">HTML</option>
+                <option value="css">CSS</option>
+                <option value="python">Python</option>
+                <option value="plaintext">Plain Text</option>
+            </select>
+            <button onclick="app.commands.toggleTheme()" title="Toggle Theme" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-white/10 transition-colors">
+                <i id="themeIcon" class="fa-solid fa-moon"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- MAIN WORKSPACE -->
+    <div class="flex-grow flex overflow-hidden relative" id="workspace" ondragover="app.commands.handleDragOver(event)" ondrop="app.commands.handleDrop(event)" ondragleave="app.commands.handleDragLeave(event)">
+        
+        <!-- Drag Indicators -->
+        <div id="drop-indicator-left" class="drop-zone-indicator left-0 top-0 bottom-0 w-1/4"></div>
+        <div id="drop-indicator-right" class="drop-zone-indicator right-0 top-0 bottom-0 w-1/4"></div>
+        <div id="drop-indicator-bottom" class="drop-zone-indicator left-0 right-0 bottom-0 h-1/4"></div>
+
+        <!-- LEFT PANEL -->
+        <div id="panel-left-container" class="flex flex-row shrink-0 h-full relative" onmouseleave="app.commands.handlePanelMouseLeave('left')">
+            <div class="flex flex-col w-12 bg-gray-200 dark:bg-[#252526] border-r border-gray-300 dark:border-[#1e1e1e] items-center py-2 gap-2 z-30" id="tabs-left" onmouseenter="app.commands.handlePanelMouseEnter('left')"></div>
+            <div class="w-64 flex flex-col bg-gray-50 dark:bg-[#1e1e1e] panel-content" id="panel-left-content" style="width: 250px;">
+                <div class="flex items-center justify-between px-2 py-1 bg-gray-200 dark:bg-[#252526] border-b border-gray-300 dark:border-[#1e1e1e] shrink-0">
+                    <span class="text-[10px] font-bold uppercase" id="title-left">PLUGIN</span>
+                    <button onclick="app.commands.togglePin('left')" title="Pin/Unpin" class="text-xs p-1 hover:text-blue-500 transition-colors">
+                        <i id="icon-pin-left" class="fa-solid fa-thumbtack text-[10px]"></i>
+                    </button>
+                </div>
+                <div class="flex-grow overflow-auto custom-scroll p-2 text-xs" id="content-left"></div>
+            </div>
+            <div class="resizer-v bg-gray-300 dark:bg-[#333]" id="resizer-left"></div>
+        </div>
+
+        <!-- CENTER AREA -->
+        <div class="flex-grow flex flex-col min-w-0 h-full relative" id="center-area">
+            <div class="flex items-end bg-gray-200 dark:bg-[#252526] shrink-0 h-9 border-b border-gray-300 dark:border-[#1e1e1e] relative">
+                <div class="flex items-end px-1 pt-1 overflow-x-auto no-scrollbar flex-1 h-full scroll-smooth" id="tabsContainer"></div>
+            </div>
+            <div class="flex-grow relative bg-white dark:bg-[#1e1e1e]" id="editorContainer">
+                <div id="monaco-editor" class="absolute inset-0"></div>
+            </div>
+            
+            <!-- BOTTOM PANEL (Restructured for persistent tabs) -->
+            <div id="panel-bottom-container" class="hidden flex-col shrink-0 relative z-30" onmouseleave="app.commands.handlePanelMouseLeave('bottom')">
+                
+                <!-- Resizer (Moves with content) -->
+                <div class="resizer-h bg-gray-300 dark:bg-[#333]" id="resizer-bottom"></div>
+                
+                <!-- Content Body (Collapses) -->
+                <div class="flex flex-col h-48 bg-gray-50 dark:bg-[#252526] panel-content border-b border-gray-300 dark:border-[#333]" id="panel-bottom-content">
+                    <div class="flex-grow overflow-auto custom-scroll p-2 text-xs font-mono" id="content-bottom"></div>
+                </div>
+
+                <!-- Tabs Bar (Always Visible at Bottom) -->
+                <div class="flex flex-row bg-gray-200 dark:bg-[#252526] h-8 border-t border-gray-300 dark:border-[#1e1e1e] items-center justify-between pr-2 z-40 relative" id="panel-bottom-bar" onmouseenter="app.commands.handlePanelMouseEnter('bottom')">
+                    <div class="flex flex-row h-full" id="tabs-bottom"></div>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-bold uppercase mr-2" id="title-bottom">PLUGIN</span>
+                        <button onclick="app.commands.togglePin('bottom')" title="Pin/Unpin" class="text-xs p-1 hover:text-blue-500 transition-colors">
+                            <i id="icon-pin-bottom" class="fa-solid fa-thumbtack text-[10px]"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT PANEL -->
+        <div id="panel-right-container" class="hidden flex-row shrink-0 h-full relative" onmouseleave="app.commands.handlePanelMouseLeave('right')">
+            <div class="resizer-v bg-gray-300 dark:bg-[#333]" id="resizer-right"></div>
+             <div class="w-64 flex flex-col bg-gray-50 dark:bg-[#1e1e1e] panel-content" id="panel-right-content" style="width: 250px;">
+                <div class="flex items-center justify-between px-2 py-1 bg-gray-200 dark:bg-[#252526] border-b border-gray-300 dark:border-[#1e1e1e] shrink-0">
+                    <button onclick="app.commands.togglePin('right')" title="Pin/Unpin" class="text-xs p-1 hover:text-blue-500 transition-colors">
+                        <i id="icon-pin-right" class="fa-solid fa-thumbtack text-[10px]"></i>
+                    </button>
+                    <span class="text-[10px] font-bold uppercase" id="title-right">PLUGIN</span>
+                </div>
+                <div class="flex-grow overflow-auto custom-scroll p-2 text-xs" id="content-right"></div>
+            </div>
+            <div class="flex flex-col w-12 bg-gray-200 dark:bg-[#252526] border-l border-gray-300 dark:border-[#1e1e1e] items-center py-2 gap-2 z-30" id="tabs-right" onmouseenter="app.commands.handlePanelMouseEnter('right')"></div>
+        </div>
+    </div>
+
+    <!-- STATUS BAR -->
+    <div class="flex items-center justify-between px-4 py-1 bg-blue-600 text-white text-xs select-none shrink-0 z-20">
+        <div class="flex gap-4">
+            <span id="status-lang" class="font-semibold">JAVASCRIPT</span>
+            <span id="status-length">Length: 0</span>
+        </div>
+        <div class="flex gap-4">
+            <span id="status-cursor">Ln 1, Col 1</span>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <div id="saveModal" class="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center hidden modal">
+        <div class="bg-white dark:bg-[#252526] rounded-lg shadow-xl w-96 p-6 border border-gray-200 dark:border-gray-700">
+            <h3 class="text-lg font-semibold mb-4 text-gray-800 dark:text-white">Save File As</h3>
+            <input type="text" id="saveFileNameInput" class="w-full px-3 py-2 border rounded bg-gray-50 dark:bg-[#1e1e1e] border-gray-300 dark:border-gray-600 mb-4 dark:text-white">
+            <div class="flex justify-end gap-2">
+                <button onclick="app.commands.closeSaveModal()" class="px-4 py-2 text-sm text-gray-600 dark:text-gray-300 hover:bg-gray-100 rounded">Cancel</button>
+                <button onclick="app.commands.confirmSave()" class="px-4 py-2 text-sm bg-blue-600 text-white rounded">Save</button>
+            </div>
+        </div>
+    </div>
+    <div id="editor-loader" class="fixed inset-0 flex flex-col items-center justify-center bg-gray-100 dark:bg-[#1e1e1e] z-50">
+        <div class="loader mb-4"></div>
+        <p class="text-sm text-gray-500">Loading Environment...</p>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+
+    <script>
+        const Config = { THEME: 'vs-dark', LANG: 'javascript' };
+        const Utils = {
+            uuid: () => 'id-' + Math.random().toString(36).substr(2, 9),
+            escapeHtml: (str) => str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;")
+        };
+
+        const PluginSystem = (function() {
+            const registry = new Map();
+            class Plugin {
+                constructor(id, containerId) { this.id = id; this.containerId = containerId; this.container = document.getElementById(containerId); }
+                render(context) { console.warn("Render not implemented"); }
+                destroy() { this.container.innerHTML = ''; }
+            }
+            return {
+                register: (name, icon, factoryFn, options = { singleton: true }) => {
+                    const typeId = name.toLowerCase().replace(/\s+/g, '-');
+                    registry.set(typeId, { typeId, name, icon, factory: factoryFn, singleton: options.singleton });
+                },
+                getRegistry: () => registry,
+                createInstance: (typeId, containerId) => {
+                    const def = registry.get(typeId);
+                    if (!def) return null;
+                    const instance = def.factory(Utils.uuid(), containerId);
+                    return { instance, def };
+                }
+            };
+        })();
+
+        const WorkspaceManager = (function() {
+            const layout = {
+                left: { activeId: null, plugins: [], pinned: true },
+                bottom: { activeId: null, plugins: [], pinned: true },
+                right: { activeId: null, plugins: [], pinned: true }
+            };
+
+            const refreshLayout = (zone) => {
+                const zoneState = layout[zone];
+                const hasPlugins = zoneState.plugins.length > 0;
+                
+                // Unified ID logic.
+                const containerId = `panel-${zone}-container`;
+                // For bottom panel, content is separate from bar
+                const contentId = `panel-${zone}-content`;
+
+                const containerEl = document.getElementById(containerId);
+                const contentEl = document.getElementById(contentId);
+                const pinIcon = document.getElementById(`icon-pin-${zone}`);
+                const titleEl = document.getElementById(`title-${zone}`);
+
+                if (!containerEl || !contentEl) return;
+
+                if (!hasPlugins) {
+                    containerEl.classList.add('hidden');
+                    containerEl.classList.remove('flex');
+                } else {
+                    containerEl.classList.remove('hidden');
+                    containerEl.classList.add('flex');
+                }
+
+                if (zoneState.pinned) {
+                    if (pinIcon) {
+                        pinIcon.classList.remove('fa-regular', 'fa-rotate-45');
+                        pinIcon.classList.add('fa-solid');
+                    }
+                    contentEl.classList.remove(`panel-floating-${zone}`, 'panel-collapsed');
+                    contentEl.style.display = 'flex'; 
+                } else {
+                    if (pinIcon) {
+                        pinIcon.classList.remove('fa-solid');
+                        pinIcon.classList.add('fa-regular');
+                    }
+                    contentEl.classList.add(`panel-floating-${zone}`);
+                }
+
+                renderZoneTabs(zone);
+                
+                if(zoneState.activeId) {
+                    const p = zoneState.plugins.find(x => x.id === zoneState.activeId);
+                    if(p && titleEl) titleEl.innerText = p.def.name;
+                }
+
+                setTimeout(() => window.dispatchEvent(new Event('resize')), 50);
+            };
+
+            const renderZoneTabs = (zone) => {
+                const container = document.getElementById(`tabs-${zone}`);
+                container.innerHTML = '';
+                const zoneState = layout[zone];
+
+                zoneState.plugins.forEach(p => {
+                    const isActive = p.id === zoneState.activeId;
+                    const btn = document.createElement('div');
+                    
+                    btn.draggable = true;
+                    btn.ondragstart = (e) => {
+                        // Use a custom MIME type so the editor doesn't treat this as text/plain content
+                        e.dataTransfer.setData('application/x-webpad-plugin', JSON.stringify({ zone: zone, id: p.id }));
+                        e.dataTransfer.effectAllowed = "move";
+                    };
+
+                    if (zone === 'left' || zone === 'right') {
+                        // Vertical Text layout
+                        btn.className = `w-10 py-3 flex flex-col items-center gap-2 cursor-pointer transition-colors relative group
+                            ${isActive ? 'text-blue-500 bg-gray-50 dark:bg-[#1e1e1e]' : 'text-gray-400 hover:text-blue-400 hover:bg-black/10 dark:hover:bg-white/5'}`;
+                        if(isActive) {
+                             if(zone === 'left') btn.classList.add('border-l-2', 'border-l-blue-500');
+                             else btn.classList.add('border-r-2', 'border-r-blue-500');
+                        }
+                        
+                        btn.innerHTML = `
+                            <div class="absolute top-0 right-0 w-4 h-4 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 hover:bg-gray-200 dark:hover:bg-white/10 rounded-bl" 
+                                 onclick="app.commands.closePlugin(event, '${zone}', '${p.id}')" title="Close">
+                                <i class="fa-solid fa-xmark text-[10px] text-gray-500 hover:text-red-500"></i>
+                            </div>
+                            <i class="${p.def.icon} text-lg mb-1 mt-1"></i>
+                            <span class="text-[9px] uppercase font-bold tracking-wider vertical-text select-none">${p.def.name}</span>
+                        `;
+                    } else {
+                        // Horizontal layout for bottom
+                        btn.className = `px-3 py-1 text-xs border-r border-gray-300 dark:border-[#333] flex items-center gap-2 cursor-pointer hover:bg-white dark:hover:bg-[#333] transition-colors
+                            ${isActive ? 'bg-white dark:bg-[#252526] text-blue-500 font-bold border-t-2 border-t-blue-500' : 'bg-gray-200 dark:bg-[#1e1e1e] text-gray-500'}`;
+                        btn.innerHTML = `<i class="${p.def.icon}"></i> <span>${p.def.name}</span> <i class="fa-solid fa-xmark hover:text-red-500 ml-1 rounded-full p-0.5" onclick="app.commands.closePlugin(event, '${zone}', '${p.id}')"></i>`;
+                    }
+                    
+                    btn.onclick = () => activatePlugin(zone, p.id);
+                    container.appendChild(btn);
+                });
+            };
+
+            const activatePlugin = (zone, id) => {
+                layout[zone].activeId = id;
+                const pWrapper = layout[zone].plugins.find(p => p.id === id);
+                
+                const contentEl = document.getElementById(`panel-${zone}-content`);
+                contentEl.classList.remove('panel-collapsed');
+                
+                refreshLayout(zone);
+                
+                const contentArea = document.getElementById(`content-${zone}`);
+                contentArea.innerHTML = '';
+                
+                if (pWrapper) {
+                    pWrapper.instance.container = contentArea;
+                    pWrapper.instance.render(EditorService.getValue());
+                }
+            };
+
+            return {
+                init: () => {
+                    ['left', 'right'].forEach(side => {
+                        const resizer = document.getElementById(`resizer-${side}`);
+                        const panel = document.getElementById(`panel-${side}-content`);
+                        let isResizing = false;
+                        resizer.addEventListener('mousedown', (e) => {
+                            isResizing = true; resizer.classList.add('resizing');
+                            document.body.style.cursor = 'col-resize'; e.preventDefault();
+                        });
+                        document.addEventListener('mousemove', (e) => {
+                            if (!isResizing) return;
+                            const newW = side === 'left' ? e.clientX - 48 : window.innerWidth - e.clientX - 48;
+                            if (newW > 150 && newW < 600) { panel.style.width = `${newW}px`; EditorService.layout(); }
+                        });
+                        document.addEventListener('mouseup', () => { 
+                            if(isResizing) { isResizing=false; resizer.classList.remove('resizing'); document.body.style.cursor=''; EditorService.layout(); }
+                        });
+                    });
+
+                    // Horizontal Resizer (Bottom)
+                    const resizerB = document.getElementById('resizer-bottom');
+                    const panelB = document.getElementById('panel-bottom-content');
+                    let isResizingB = false;
+                    resizerB.addEventListener('mousedown', (e) => {
+                        isResizingB = true; resizerB.classList.add('resizing');
+                        document.body.style.cursor = 'row-resize'; e.preventDefault();
+                    });
+                    document.addEventListener('mousemove', (e) => {
+                        if (!isResizingB) return;
+                        // Calculation: Window Height - Mouse Y - TabBarHeight (32px) - StatusBar (28px)
+                        const newH = window.innerHeight - e.clientY - 60; 
+                        if (newH > 50 && newH < window.innerHeight - 100) { 
+                            panelB.style.height = `${newH}px`; 
+                            EditorService.layout(); 
+                        }
+                    });
+                    document.addEventListener('mouseup', () => {
+                        if(isResizingB) { isResizingB=false; resizerB.classList.remove('resizing'); document.body.style.cursor=''; EditorService.layout(); }
+                    });
+                },
+                
+                addPlugin: (typeId, zone = 'left') => {
+                    const def = PluginSystem.getRegistry().get(typeId);
+                    if (!def) return;
+
+                    if (def.singleton) {
+                        for (const z of ['left', 'right', 'bottom']) {
+                            const found = layout[z].plugins.find(p => p.def.typeId === typeId);
+                            if (found) {
+                                activatePlugin(z, found.id);
+                                return;
+                            }
+                        }
+                    }
+
+                    const result = PluginSystem.createInstance(typeId, `content-${zone}`);
+                    if (!result) return;
+                    const { instance, def: pluginDef } = result;
+                    const id = Utils.uuid();
+                    layout[zone].plugins.push({ id, instance, def: pluginDef });
+                    layout[zone].activeId = id;
+                    activatePlugin(zone, id);
+                },
+
+                removePlugin: (zone, id) => {
+                    const idx = layout[zone].plugins.findIndex(p => p.id === id);
+                    if (idx === -1) return;
+                    layout[zone].plugins[idx].instance.destroy();
+                    layout[zone].plugins.splice(idx, 1);
+                    if (layout[zone].plugins.length > 0) {
+                        activatePlugin(zone, layout[zone].plugins[layout[zone].plugins.length - 1].id);
+                    } else {
+                        layout[zone].activeId = null;
+                        refreshLayout(zone);
+                    }
+                },
+
+                handleDragOver: (e) => {
+                    e.preventDefault();
+                    const w = window.innerWidth;
+                    const h = window.innerHeight;
+                    const x = e.clientX;
+                    const y = e.clientY;
+
+                    const indLeft = document.getElementById('drop-indicator-left');
+                    const indRight = document.getElementById('drop-indicator-right');
+                    const indBottom = document.getElementById('drop-indicator-bottom');
+                    
+                    indLeft.style.display = 'none';
+                    indRight.style.display = 'none';
+                    indBottom.style.display = 'none';
+
+                    if (x < w * 0.2) indLeft.style.display = 'block';
+                    else if (x > w * 0.8) indRight.style.display = 'block';
+                    else if (y > h * 0.8) indBottom.style.display = 'block';
+                },
+
+                handleDragLeave: (e) => {
+                     document.querySelectorAll('.drop-zone-indicator').forEach(el => el.style.display = 'none');
+                },
+
+                handleDrop: (e) => {
+                    e.preventDefault();
+                    document.querySelectorAll('.drop-zone-indicator').forEach(el => el.style.display = 'none');
+
+                    try {
+                        // Retrieve the custom data type. If it's missing, it's not a plugin drop (e.g. text or file), so we ignore it.
+                        const raw = e.dataTransfer.getData('application/x-webpad-plugin');
+                        if (!raw) return;
+
+                        const data = JSON.parse(raw);
+                        const w = window.innerWidth;
+                        const h = window.innerHeight;
+                        const x = e.clientX;
+                        const y = e.clientY;
+
+                        let targetZone = null;
+                        if (x < w * 0.2) targetZone = 'left';
+                        else if (x > w * 0.8) targetZone = 'right';
+                        else if (y > h * 0.8) targetZone = 'bottom';
+
+                        if (targetZone && targetZone !== data.zone) {
+                            const sourceList = layout[data.zone].plugins;
+                            const idx = sourceList.findIndex(p => p.id === data.id);
+                            if (idx > -1) {
+                                const p = sourceList[idx];
+                                sourceList.splice(idx, 1);
+                                if(sourceList.length > 0) layout[data.zone].activeId = sourceList[sourceList.length-1].id;
+                                else layout[data.zone].activeId = null;
+                                refreshLayout(data.zone);
+
+                                layout[targetZone].plugins.push(p);
+                                layout[targetZone].activeId = p.id;
+                                activatePlugin(targetZone, p.id);
+                            }
+                        }
+                    } catch(err) { console.error("Drop failed", err); }
+                },
+
+                togglePin: (zone) => {
+                    layout[zone].pinned = !layout[zone].pinned;
+                    refreshLayout(zone);
+                },
+
+                handlePanelMouseEnter: (zone) => {
+                    if (layout[zone].pinned) return;
+                    const contentEl = document.getElementById(`panel-${zone}-content`);
+                    contentEl.classList.remove('panel-collapsed');
+                },
+
+                handlePanelMouseLeave: (zone) => {
+                    if (layout[zone].pinned) return;
+                    const contentEl = document.getElementById(`panel-${zone}-content`);
+                    contentEl.classList.add('panel-collapsed');
+                },
+
+                broadcastContext: (content) => {
+                    ['left', 'right', 'bottom'].forEach(zone => {
+                        if (layout[zone].activeId) {
+                            const p = layout[zone].plugins.find(x => x.id === layout[zone].activeId);
+                            if (p && p.instance) p.instance.render(content);
+                        }
+                    });
+                }
+            };
+        })();
+
+        // --- Plugins (Json & Hex) ---
+        const JsonPlugin = class {
+            constructor(id, containerId) { this.container = null; }
+            render(content) {
+                if (!this.container) return; this.container.innerHTML = '';
+                try {
+                    const json = JSON.parse(content);
+                    const root = document.createElement('div'); root.className = 'json-tree select-text';
+                    root.appendChild(this.createNode(null, json)); this.container.appendChild(root);
+                } catch (e) { this.container.innerHTML = `<div class="text-red-500 p-2 font-mono text-xs">Invalid JSON:<br>${Utils.escapeHtml(e.message)}</div>`; }
+            }
+            createNode(key, value) {
+                const node = document.createElement('div'); node.className = 'json-node';
+                if (value === null || typeof value !== 'object') {
+                    const line = document.createElement('div'); line.className = 'hover:bg-black/5 dark:hover:bg-white/5 py-0.5 px-1';
+                    const keyHtml = key ? `<span class="json-key">"${key}"</span>: ` : '';
+                    line.innerHTML = `<i class="json-caret opacity-0"></i>${keyHtml}${this.formatValue(value)}`;
+                    node.appendChild(line); return node;
+                }
+                const isArray = Array.isArray(value); const keys = Object.keys(value); const isEmpty = keys.length === 0;
+                const header = document.createElement('div'); header.className = 'flex items-start hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer py-0.5 px-1 select-none';
+                const caret = document.createElement('i'); caret.className = `json-caret fa-solid fa-caret-right ${isEmpty ? 'opacity-0' : ''}`;
+                header.appendChild(caret);
+                const label = document.createElement('span'); let labelHtml = '';
+                if (key) labelHtml += `<span class="json-key">"${key}"</span>: `;
+                if (isEmpty) labelHtml += isArray ? '[]' : '{}';
+                else { labelHtml += isArray ? `Array(${keys.length}) [` : `Object(${keys.length}) {`; labelHtml += `<span class="json-preview text-gray-400 mx-1 italic text-[10px]">...</span>`; labelHtml += isArray ? `]` : `}`; }
+                label.innerHTML = labelHtml; header.appendChild(label); node.appendChild(header);
+                if (isEmpty) return node;
+                const children = document.createElement('div'); children.className = 'json-node-children hidden'; node.appendChild(children);
+                let isExpanded = false; let hasRendered = false;
+                header.onclick = (e) => {
+                    e.stopPropagation(); isExpanded = !isExpanded;
+                    if (isExpanded) {
+                        caret.classList.add('rotated'); children.classList.remove('hidden'); label.querySelector('.json-preview').style.display = 'none';
+                        if (!hasRendered) { keys.forEach(k => { children.appendChild(this.createNode(isArray ? null : k, value[k])); }); hasRendered = true; }
+                    } else { caret.classList.remove('rotated'); children.classList.add('hidden'); label.querySelector('.json-preview').style.display = 'inline'; }
+                };
+                return node;
+            }
+            formatValue(val) {
+                if (typeof val === 'string') return `<span class="json-string">"${Utils.escapeHtml(val)}"</span>`;
+                if (typeof val === 'number') return `<span class="json-number">${val}</span>`;
+                if (typeof val === 'boolean') return `<span class="json-boolean">${val}</span>`;
+                if (val === null) return `<span class="json-null">null</span>`;
+                return val;
+            }
+            destroy() {}
+        };
+
+        const HexPlugin = class {
+            constructor(id, containerId) { this.container = null; }
+            render(content) {
+                if (!this.container) return;
+                const limit = 2000; const truncated = content.length > limit; const data = content.slice(0, limit);
+                let html = '<div class="hex-grid">';
+                for (let i = 0; i < data.length; i += 16) {
+                    const offset = i.toString(16).padStart(8, '0').toUpperCase(); let hexBytes = ''; let ascii = '';
+                    for (let j = 0; j < 16; j++) {
+                        if (i + j < data.length) {
+                            const code = data.charCodeAt(i + j); hexBytes += code.toString(16).padStart(2, '0').toUpperCase() + ' ';
+                            ascii += (code >= 32 && code <= 126) ? data[i+j] : '.';
+                        } else { hexBytes += '   '; }
+                    }
+                    html += `<div class="hex-offset">${offset}</div>`;
+                    html += `<div><span class="hex-bytes">${hexBytes}</span> <span class="hex-ascii ml-4 border-l border-gray-600 pl-2">${Utils.escapeHtml(ascii)}</span></div>`;
+                }
+                html += '</div>';
+                if (truncated) html += `<div class="mt-2 text-yellow-600 italic">...View truncated at ${limit} chars for performance...</div>`;
+                this.container.innerHTML = html;
+            }
+            destroy() {}
+        };
+
+        const EditorService = (function() {
+            let _editor = null;
+            return {
+                init: (containerId, callback) => {
+                    require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
+                    require(['vs/editor/editor.main'], function() {
+                        _editor = monaco.editor.create(document.getElementById(containerId), {
+                            value: '', language: 'javascript', theme: 'vs-dark', automaticLayout: true, minimap: { enabled: true },
+                            fontSize: 14, tabSize: 4, scrollBeyondLastLine: false, padding: { top: 10, bottom: 10 }
+                        });
+                        callback(_editor);
+                    });
+                },
+                setModel: (model) => { if (_editor && model) _editor.setModel(model); },
+                getValue: () => _editor ? _editor.getValue() : '',
+                createModel: (val, lang) => monaco.editor.createModel(val, lang),
+                trigger: (act) => _editor?.trigger('keyboard', act, null),
+                setTheme: (t) => monaco.editor.setTheme(t),
+                layout: () => _editor?.layout(),
+                getPosition: () => _editor?.getPosition(),
+                getLength: () => _editor?.getValue().length || 0
+            };
+        })();
+
+        const UIManager = {
+            renderTabs: (tabs, activeId, onSelect, onClose) => {
+                const container = document.getElementById('tabsContainer'); container.innerHTML = '';
+                tabs.forEach(tab => {
+                    const isActive = tab.id === activeId;
+                    const el = document.createElement('div');
+                    el.className = `group flex items-center gap-2 px-3 py-2 min-w-[120px] max-w-[200px] text-xs cursor-pointer select-none border-r border-gray-300 dark:border-[#1e1e1e] flex-shrink-0 ${isActive ? 'bg-white dark:bg-[#1e1e1e] text-blue-600 dark:text-gray-200 border-t-2 border-t-blue-500' : 'bg-gray-200 dark:bg-[#2d2d2d] text-gray-500 hover:bg-gray-300 dark:hover:bg-[#383838]'}`;
+                    el.onclick = () => onSelect(tab.id);
+                    el.innerHTML = `<span class="truncate flex-1 font-medium">${tab.name}</span>`;
+                    const closeBtn = document.createElement('button');
+                    closeBtn.className = `opacity-0 group-hover:opacity-100 p-0.5 rounded-full hover:bg-red-500 hover:text-white transition-opacity ${tabs.length === 1 ? 'hidden' : ''}`;
+                    closeBtn.innerHTML = '<i class="fa-solid fa-xmark text-[10px] w-4 h-4 flex items-center justify-center"></i>';
+                    closeBtn.onclick = (e) => { e.stopPropagation(); onClose(tab.id); };
+                    el.appendChild(closeBtn); container.appendChild(el);
+                });
+            },
+            updateStatus: (pos, len, lang) => {
+                document.getElementById('status-cursor').innerText = pos ? `Ln ${pos.lineNumber}, Col ${pos.column}` : '';
+                document.getElementById('status-length').innerText = `Length: ${len}`;
+                if (lang) { document.getElementById('status-lang').innerText = lang.toUpperCase(); document.getElementById('langSelect').value = lang; }
+            },
+            renderPluginMenu: () => {
+                const list = document.getElementById('pluginListMenu'); list.innerHTML = '';
+                PluginSystem.getRegistry().forEach((def, key) => {
+                    const item = document.createElement('button');
+                    item.className = "w-full text-left px-4 py-2 text-xs hover:bg-gray-100 dark:hover:bg-[#333] dark:text-gray-300 flex items-center gap-2";
+                    item.innerHTML = `<i class="${def.icon} w-4"></i> Add ${def.name}`;
+                    item.onclick = () => app.commands.addPlugin(key); list.appendChild(item);
+                });
+            }
+        };
+
+        const TabFactory = {
+            create: (name, lang, content) => ({
+                id: Utils.uuid(), name: name || 'new file', language: lang || 'javascript', model: EditorService.createModel(content || '', lang || 'javascript')
+            })
+        };
+
+        const App = (function() {
+            const state = { tabs: [], activeTabId: null, isDark: true };
+            let debounceTimer = null;
+
+            const _handleContextChange = () => {
+                if (debounceTimer) clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    WorkspaceManager.broadcastContext(EditorService.getValue());
+                    UIManager.updateStatus(EditorService.getPosition(), EditorService.getLength());
+                }, 300);
+            };
+
+            const commands = {
+                newTab: (name, lang, content) => {
+                    const tab = TabFactory.create(name, lang, content); state.tabs.push(tab); tab.model.onDidChangeContent(_handleContextChange); commands.activateTab(tab.id);
+                },
+                togglePluginMenu: (e) => {
+                    e.stopPropagation();
+                    document.getElementById('pluginListMenu').classList.toggle('hidden');
+                },
+                activateTab: (id) => {
+                    const tab = state.tabs.find(t => t.id === id); if (!tab) return; state.activeTabId = id; EditorService.setModel(tab.model); UIManager.renderTabs(state.tabs, id, commands.activateTab, commands.closeTab); UIManager.updateStatus(EditorService.getPosition(), EditorService.getLength(), tab.language); WorkspaceManager.broadcastContext(tab.model.getValue());
+                },
+                closeTab: (id) => {
+                    if (state.tabs.length <= 1) return; const idx = state.tabs.findIndex(t => t.id === id); state.tabs[idx].model.dispose(); state.tabs.splice(idx, 1); commands.activateTab(state.tabs[Math.max(0, idx - 1)].id);
+                },
+                editorAction: (act) => EditorService.trigger(act),
+                changeLanguage: (lang) => { const t = state.tabs.find(x => x.id === state.activeTabId); if (t) { monaco.editor.setModelLanguage(t.model, lang); t.language = lang; UIManager.updateStatus(null, EditorService.getLength(), lang); } },
+                toggleTheme: () => { state.isDark = !state.isDark; document.documentElement.classList.toggle('dark'); EditorService.setTheme(state.isDark ? 'vs-dark' : 'vs'); },
+                
+                addPlugin: (typeId) => WorkspaceManager.addPlugin(typeId, 'left'),
+                closePlugin: (e, zone, id) => { if(e) e.stopPropagation(); WorkspaceManager.removePlugin(zone, id); },
+                togglePin: (zone) => WorkspaceManager.togglePin(zone),
+                handlePanelMouseEnter: (zone) => WorkspaceManager.handlePanelMouseEnter(zone),
+                handlePanelMouseLeave: (zone) => WorkspaceManager.handlePanelMouseLeave(zone),
+                handleDragOver: (e) => WorkspaceManager.handleDragOver(e),
+                handleDragLeave: (e) => WorkspaceManager.handleDragLeave(e),
+                handleDrop: (e) => WorkspaceManager.handleDrop(e),
+                
+                triggerOpen: () => document.getElementById('fileInput').click(),
+                openFile: (input) => {
+                    const f = input.files[0]; if(!f) return; const r = new FileReader(); r.onload = (e) => commands.newTab(f.name, 'javascript', e.target.result); r.readAsText(f);
+                },
+                promptSave: () => document.getElementById('saveModal').classList.remove('hidden'),
+                closeSaveModal: () => document.getElementById('saveModal').classList.add('hidden'),
+                confirmSave: () => {
+                    const name = document.getElementById('saveFileNameInput').value; if(!name) return; const blob = new Blob([EditorService.getValue()], {type: 'text/plain'}); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name; a.click(); commands.closeSaveModal();
+                }
+            };
+            const init = () => {
+                document.documentElement.classList.add('dark');
+                PluginSystem.register('JSON Tree', 'fa-solid fa-code', (id, c) => new JsonPlugin(id, c));
+                PluginSystem.register('Hex Viewer', 'fa-solid fa-memory', (id, c) => new HexPlugin(id, c));
+                UIManager.renderPluginMenu(); WorkspaceManager.init();
+                
+                // Close dropdowns on outside click
+                window.addEventListener('click', () => {
+                    const menu = document.getElementById('pluginListMenu');
+                    if (menu && !menu.classList.contains('hidden')) menu.classList.add('hidden');
+                });
+
+                EditorService.init('monaco-editor', (editor) => {
+                    editor.onDidChangeCursorPosition((e) => UIManager.updateStatus(e.position, EditorService.getLength()));
+                    document.getElementById('editor-loader').style.display = 'none';
+                    commands.newTab(null, 'json', '{\n  "demo": "Drag & Drop Plugins",\n  "instructions": "Drag the Code icon from the left bar to the Right side or Bottom."\n}');
+                    WorkspaceManager.addPlugin('json-tree', 'left');
+                });
+                window.addEventListener('resize', () => EditorService.layout());
+            };
+            return { init, commands };
+        })();
+
+        window.addEventListener('DOMContentLoaded', App.init);
+        window.app = App;
+
+    </script>
+</body>
+</html>
