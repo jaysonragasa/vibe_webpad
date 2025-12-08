@@ -672,9 +672,9 @@
                 if (!this.container) return;
                 this.container.innerHTML = '';
                 
-                if (typeof marked === 'undefined') {
+                if (typeof marked === 'undefined' || !marked.parse) {
                     // Cleaner error message when marked is not available
-                    this.container.innerHTML = '<div class="p-2 text-xs text-red-500">Error: Markdown library (marked.js) failed to load.</div>';
+                    this.container.innerHTML = '<div class="p-2 text-xs text-red-500">Error: Markdown library (marked.js) failed to load. Please check console for network errors.</div>';
                     return;
                 }
                 
