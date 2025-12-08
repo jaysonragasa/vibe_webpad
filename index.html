@@ -117,12 +117,14 @@
             <button onclick="app.commands.editorAction('redo')" title="Redo" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-white/10 transition-colors"><i class="fa-solid fa-rotate-right"></i></button>
         </div>
 
-        <div class="flex items-center gap-1 border-r border-gray-300 dark:border-gray-600 pr-2 shrink-0 relative">
-            <button onclick="app.commands.togglePluginMenu(event)" class="p-2 rounded hover:bg-gray-200 dark:hover:bg-white/10 transition-colors flex items-center gap-1">
-                <i class="fa-solid fa-plug text-purple-600 dark:text-purple-400"></i>
+        <div id="pluginButtonContainer" class="flex items-center gap-1 border-r border-gray-300 dark:border-gray-600 pr-2 shrink-0 relative">
+            <button onclick="app.commands.togglePluginMenu(event)" 
+                    id="pluginMenuButton"
+                    class="h-8 px-3 text-xs rounded border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-[#3c3c3c] hover:bg-gray-300 dark:hover:bg-white/10 focus:outline-none focus:border-blue-500 transition-colors flex items-center gap-1">
                 <span class="text-xs font-semibold">Plugins</span>
+                <i class="fa-solid fa-caret-down text-gray-500"></i>
             </button>
-            <div class="hidden absolute top-full left-0 mt-1 w-48 bg-white dark:bg-[#252526] border border-gray-200 dark:border-[#1e1e1e] shadow-xl rounded z-50 py-1" id="pluginListMenu"></div>
+            <!-- #pluginListMenu is now defined globally near the modals -->
         </div>
 
         <div class="flex items-center gap-2 ml-auto shrink-0">
@@ -235,7 +237,7 @@
         </div>
     </div>
 
-    <!-- Modals -->
+    <!-- Modals and Global Dropdowns -->
     <div id="saveModal" class="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center modal">
         <div class="bg-white dark:bg-[#252526] rounded-lg shadow-xl w-96 p-6 border border-gray-200 dark:border-gray-700">
             <h3 class="text-lg font-semibold mb-4 text-gray-800 dark:text-white">Save File As</h3>
@@ -250,6 +252,10 @@
         <div class="loader mb-4"></div>
         <p class="text-sm text-gray-500">Loading Environment...</p>
     </div>
+    
+    <!-- GLOBAL PLUGIN DROPDOWN (Fixed position with highest z-index) -->
+    <div id="pluginListMenu" class="hidden fixed w-48 bg-white dark:bg-[#252526] border border-gray-200 dark:border-[#1e1e1e] shadow-xl rounded z-[101] py-1"></div>
+
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
 
@@ -702,10 +708,19 @@
             renderPluginMenu: () => {
                 const list = document.getElementById('pluginListMenu'); list.innerHTML = '';
                 PluginSystem.getRegistry().forEach((def, key) => {
-                    const item = document.createElement('button');
-                    item.className = "w-full text-left px-4 py-2 text-xs hover:bg-gray-100 dark:hover:bg-[#333] dark:text-gray-300 flex items-center gap-2";
-                    item.innerHTML = `<i class="${def.icon} w-4"></i> Add ${def.name}`;
-                    item.onclick = () => app.commands.addPlugin(key); list.appendChild(item);
+                    // Note: We use 'div' here to allow drag events to fire on the list items
+                    const item = document.createElement('div');
+                    item.draggable = true; // Make list item draggable
+                    item.ondragstart = (e) => {
+                        e.dataTransfer.setData('application/x-webpad-plugin', JSON.stringify({ zone: 'menu', id: key })); // Use typeId as id for creation
+                        e.dataTransfer.effectAllowed = "copy";
+                    };
+
+                    item.className = "w-full text-left px-4 py-2 text-xs hover:bg-gray-100 dark:hover:bg-[#333] dark:text-gray-300 flex items-center gap-2 cursor-grab";
+                    item.innerHTML = `<i class="${def.icon} w-4 text-purple-500"></i> <span class="font-semibold">${def.name}</span>`;
+                    // Click action adds the plugin to the default zone ('left')
+                    item.onclick = (e) => { e.stopPropagation(); app.commands.addPlugin(key); document.getElementById('pluginListMenu').classList.add('hidden'); };
+                    list.appendChild(item);
                 });
             }
         };
@@ -734,8 +749,20 @@
                 },
                 togglePluginMenu: (e) => {
                     e.stopPropagation();
-                    document.getElementById('pluginListMenu').classList.toggle('hidden');
-                    document.getElementById('tabOverflowMenu').classList.add('hidden'); // Close other menu
+                    const menu = document.getElementById('pluginListMenu');
+                    const button = document.getElementById('pluginMenuButton');
+                    
+                    if (menu.classList.contains('hidden')) {
+                        // Position and show menu
+                        const rect = button.getBoundingClientRect();
+                        menu.style.top = `${rect.bottom + 5}px`;
+                        menu.style.left = `${rect.left}px`;
+                        menu.classList.remove('hidden');
+                        document.getElementById('tabOverflowMenu').classList.add('hidden'); // Close other menu
+                    } else {
+                        // Hide menu
+                        menu.classList.add('hidden');
+                    }
                 },
                 toggleTabOverflowMenu: (e) => {
                     e.stopPropagation();
@@ -785,6 +812,18 @@
                     const tabMenu = document.getElementById('tabOverflowMenu');
                     if (tabMenu && !tabMenu.classList.contains('hidden')) tabMenu.classList.add('hidden');
                 });
+                
+                // Re-position the plugin menu on resize
+                window.addEventListener('resize', () => {
+                    EditorService.layout();
+                    const menu = document.getElementById('pluginListMenu');
+                    if (!menu.classList.contains('hidden')) {
+                         const button = document.getElementById('pluginMenuButton');
+                         const rect = button.getBoundingClientRect();
+                         menu.style.top = `${rect.bottom + 5}px`;
+                         menu.style.left = `${rect.left}px`;
+                    }
+                });
 
                 EditorService.init('monaco-editor', (editor) => {
                     editor.onDidChangeCursorPosition((e) => UIManager.updateStatus(e.position, EditorService.getLength()));
@@ -792,7 +831,6 @@
                     commands.newTab(null, 'json', '{\n  "demo": "Drag & Drop Plugins",\n  "instructions": "Drag the Code icon from the left bar to the Right side or Bottom."\n}');
                     WorkspaceManager.addPlugin('json-tree', 'left');
                 });
-                window.addEventListener('resize', () => EditorService.layout());
             };
             return { init, commands };
         })();
