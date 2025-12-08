@@ -11,8 +11,8 @@
     <!-- FontAwesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     
-    <!-- Marked Library for Markdown Rendering -->
-    <script src="https://cdn.jsdelivr.net/npm/marked@12.1.0/lib/marked.umd.js"></script>
+    <!-- Marked Library for Markdown Rendering (MOVED TO BOTTOM FOR RELIABLE LOADING) -->
+    <!-- Removed from here -->
 
     <style>
         .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -211,7 +211,7 @@
                 <div class="flex flex-row bg-gray-200 dark:bg-[#252526] h-8 border-t border-gray-300 dark:border-[#1e1e1e] items-center justify-between pr-2 z-40 relative" id="panel-bottom-bar" onmouseenter="app.commands.handlePanelMouseEnter('bottom')">
                     <div class="flex flex-row h-full" id="tabs-bottom"></div>
                     <div class="flex items-center gap-2">
-                        <span class="text-[10px] font-bold uppercase mr-2" id="title-bottom">PLUGIN</span>
+                        <span class="text-[10px] font-bold uppercase" id="title-bottom">PLUGIN</span>
                         <button onclick="app.commands.togglePin('bottom')" title="Pin/Unpin" class="text-xs p-1 hover:text-blue-500 transition-colors">
                             <i id="icon-pin-bottom" class="fa-solid fa-thumbtack text-[10px]"></i>
                         </button>
@@ -266,7 +266,8 @@
     <!-- GLOBAL PLUGIN DROPDOWN (Fixed position with highest z-index) -->
     <div id="pluginListMenu" class="hidden fixed w-48 bg-white dark:bg-[#252526] border border-gray-200 dark:border-[#1e1e1e] shadow-xl rounded z-[101] py-1"></div>
 
-
+    <!-- Marked Library for Markdown Rendering -->
+    <script src="https://cdn.jsdelivr.net/npm/marked@12.1.0/lib/marked.umd.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
 
     <script>
@@ -672,7 +673,8 @@
                 this.container.innerHTML = '';
                 
                 if (typeof marked === 'undefined') {
-                    this.container.innerHTML = '<div class="text-red-500 p-2 text-xs">Markdown library not loaded.</div>';
+                    // Cleaner error message when marked is not available
+                    this.container.innerHTML = '<div class="p-2 text-xs text-red-500">Error: Markdown library (marked.js) failed to load.</div>';
                     return;
                 }
                 
