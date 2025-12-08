@@ -99,8 +99,8 @@
 <body class="bg-gray-100 text-gray-800 dark:bg-vsDark dark:text-vsText h-screen flex flex-col font-sans transition-colors duration-200">
 
     <!-- TOP TOOLBAR -->
-    <div class="flex items-center px-2 py-2 gap-2 bg-white dark:bg-[#333333] border-b border-gray-300 dark:border-[#252526] shadow-sm shrink-0 z-20">
-        <div class="flex items-center mr-3 select-none shrink-0">
+    <div class="flex items-center px-2 py-2 gap-2 bg-white dark:bg-[#333333] border-b border-gray-300 dark:border-[#252526] shadow-sm shrink-0 z-20 overflow-x-auto custom-scroll">
+        <div class="flex items-center mr-3 select-none shrink-0 min-w-max">
             <span class="font-bold text-lg text-blue-600 dark:text-blue-400">WebPad</span>
             <span class="font-bold text-lg text-emerald-500">++</span>
         </div>
@@ -166,7 +166,19 @@
         <!-- CENTER AREA -->
         <div class="flex-grow flex flex-col min-w-0 h-full relative" id="center-area">
             <div class="flex items-end bg-gray-200 dark:bg-[#252526] shrink-0 h-9 border-b border-gray-300 dark:border-[#1e1e1e] relative">
-                <div class="flex items-end px-1 pt-1 overflow-x-auto no-scrollbar flex-1 h-full scroll-smooth" id="tabsContainer"></div>
+                <!-- Tab Container -->
+                <div class="flex items-end px-1 pt-1 overflow-x-auto custom-scroll flex-1 h-full scroll-smooth" id="tabsContainer"></div>
+                
+                <!-- Overflow Button and Menu -->
+                <div class="relative shrink-0 flex items-center h-full border-l border-gray-300 dark:border-[#1e1e1e] bg-gray-200 dark:bg-[#252526]">
+                    <button onclick="app.commands.toggleTabOverflowMenu(event)" title="Open tabs list" class="h-full px-2 text-gray-500 hover:text-blue-500 hover:bg-gray-300 dark:hover:bg-white/10 transition-colors">
+                        <i class="fa-solid fa-caret-down text-sm"></i>
+                    </button>
+                    <!-- The actual menu list -->
+                    <div id="tabOverflowMenu" class="hidden absolute top-full right-0 mt-0 w-48 bg-white dark:bg-[#252526] border border-gray-200 dark:border-[#1e1e1e] shadow-xl rounded z-50 py-1">
+                        <!-- Menu items rendered by JS -->
+                    </div>
+                </div>
             </div>
             <div class="flex-grow relative bg-white dark:bg-[#1e1e1e]" id="editorContainer">
                 <div id="monaco-editor" class="absolute inset-0"></div>
@@ -658,8 +670,12 @@
         const UIManager = {
             renderTabs: (tabs, activeId, onSelect, onClose) => {
                 const container = document.getElementById('tabsContainer'); container.innerHTML = '';
+                const menu = document.getElementById('tabOverflowMenu'); menu.innerHTML = '';
+
                 tabs.forEach(tab => {
                     const isActive = tab.id === activeId;
+                    
+                    // --- 1. Render Main Tab Bar Item ---
                     const el = document.createElement('div');
                     el.className = `group flex items-center gap-2 px-3 py-2 min-w-[120px] max-w-[200px] text-xs cursor-pointer select-none border-r border-gray-300 dark:border-[#1e1e1e] flex-shrink-0 ${isActive ? 'bg-white dark:bg-[#1e1e1e] text-blue-600 dark:text-gray-200 border-t-2 border-t-blue-500' : 'bg-gray-200 dark:bg-[#2d2d2d] text-gray-500 hover:bg-gray-300 dark:hover:bg-[#383838]'}`;
                     el.onclick = () => onSelect(tab.id);
@@ -669,6 +685,13 @@
                     closeBtn.innerHTML = '<i class="fa-solid fa-xmark text-[10px] w-4 h-4 flex items-center justify-center"></i>';
                     closeBtn.onclick = (e) => { e.stopPropagation(); onClose(tab.id); };
                     el.appendChild(closeBtn); container.appendChild(el);
+
+                    // --- 2. Render Overflow Menu Item ---
+                    const menuItem = document.createElement('button');
+                    menuItem.className = `w-full text-left px-4 py-2 text-xs flex items-center gap-2 hover:bg-gray-100 dark:hover:bg-[#333] ${isActive ? 'font-bold text-blue-600 dark:text-blue-400' : 'dark:text-gray-300'}`;
+                    menuItem.innerHTML = `<i class="fa-solid fa-file-code w-4"></i> ${tab.name}`;
+                    menuItem.onclick = (e) => { e.stopPropagation(); onSelect(tab.id); menu.classList.add('hidden'); };
+                    menu.appendChild(menuItem);
                 });
             },
             updateStatus: (pos, len, lang) => {
@@ -712,6 +735,12 @@
                 togglePluginMenu: (e) => {
                     e.stopPropagation();
                     document.getElementById('pluginListMenu').classList.toggle('hidden');
+                    document.getElementById('tabOverflowMenu').classList.add('hidden'); // Close other menu
+                },
+                toggleTabOverflowMenu: (e) => {
+                    e.stopPropagation();
+                    document.getElementById('tabOverflowMenu').classList.toggle('hidden');
+                    document.getElementById('pluginListMenu').classList.add('hidden'); // Close other menu
                 },
                 activateTab: (id) => {
                     const tab = state.tabs.find(t => t.id === id); if (!tab) return; state.activeTabId = id; EditorService.setModel(tab.model); UIManager.renderTabs(state.tabs, id, commands.activateTab, commands.closeTab); UIManager.updateStatus(EditorService.getPosition(), EditorService.getLength(), tab.language); WorkspaceManager.broadcastContext(tab.model.getValue());
@@ -750,8 +779,11 @@
                 
                 // Close dropdowns on outside click
                 window.addEventListener('click', () => {
-                    const menu = document.getElementById('pluginListMenu');
-                    if (menu && !menu.classList.contains('hidden')) menu.classList.add('hidden');
+                    const pluginMenu = document.getElementById('pluginListMenu');
+                    if (pluginMenu && !pluginMenu.classList.contains('hidden')) pluginMenu.classList.add('hidden');
+                    
+                    const tabMenu = document.getElementById('tabOverflowMenu');
+                    if (tabMenu && !tabMenu.classList.contains('hidden')) tabMenu.classList.add('hidden');
                 });
 
                 EditorService.init('monaco-editor', (editor) => {
