@@ -182,7 +182,7 @@
                 <div class="flex items-end px-1 pt-1 overflow-x-auto custom-scroll flex-1 h-full scroll-smooth" id="tabsContainer"></div>
                 
                 <!-- Overflow Button and Menu -->
-                <div class="relative shrink-0 flex items-center h-full border-l border-gray-300 dark:border-[#1e1e1e] bg-gray-200 dark:bg-[#252526]">
+                <div class="relative shrink-0 flex items-center h-full border-l border-gray-300 dark:border-[#1e1e1e] bg-gray-200 dark:bg-[#252526">
                     <button onclick="app.commands.toggleTabOverflowMenu(event)" title="Open tabs list" class="h-full px-2 text-gray-500 hover:text-blue-500 hover:bg-gray-300 dark:hover:bg-white/10 transition-colors">
                         <i class="fa-solid fa-caret-down text-sm"></i>
                     </button>
@@ -624,9 +624,9 @@
                 header.onclick = (e) => {
                     e.stopPropagation(); isExpanded = !isExpanded;
                     if (isExpanded) {
-                        caret.classList.add('rotated'); children.classList.remove('hidden'); label.querySelector('.json-preview').style.display = 'none';
+                        caret.classList.remove('rotated'); children.classList.add('hidden'); label.querySelector('.json-preview').style.display = 'none';
                         if (!hasRendered) { keys.forEach(k => { children.appendChild(this.createNode(isArray ? null : k, value[k])); }); hasRendered = true; }
-                    } else { caret.classList.remove('rotated'); children.classList.add('hidden'); label.querySelector('.json-preview').style.display = 'inline'; }
+                    } else { caret.classList.add('rotated'); children.classList.remove('hidden'); label.querySelector('.json-preview').style.display = 'inline'; }
                 };
                 return node;
             }
@@ -686,6 +686,125 @@
                     this.container.innerHTML = `<div class="markdown-body text-xs">${htmlContent}</div>`;
                 } catch (e) {
                     this.container.innerHTML = `<div class="text-red-500 p-2 font-mono text-xs">Markdown Render Error:<br>${Utils.escapeHtml(e.message)}</div>`;
+                }
+            }
+            destroy() {}
+        };
+
+        // 4. XML Viewer Plugin
+        const XmlPlugin = class {
+            constructor(id, containerId) { this.container = null; }
+            
+            createNode(node) {
+                if (node.nodeType !== 1) return null; // Only process element nodes (type 1)
+
+                const nodeEl = document.createElement('div');
+                nodeEl.className = 'json-node'; // Using existing class for consistent indentation/style
+                
+                // --- Determine Children ---
+                const hasElementChildren = Array.from(node.children).filter(c => c.nodeType === 1).length > 0;
+
+                // --- Header (Clickable area) ---
+                const header = document.createElement('div');
+                // Make it clickable and apply caret padding space
+                header.className = 'flex items-start flex-col py-0.5 px-1 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer select-none';
+                
+                const caret = document.createElement('i');
+                caret.className = `json-caret fa-solid fa-caret-right ${!hasElementChildren ? 'opacity-0' : ''}`;
+                
+                // Element Label (Must be on the same line as the caret)
+                const elementLabelContainer = document.createElement('div');
+                elementLabelContainer.className = 'flex items-center font-bold text-blue-400';
+                elementLabelContainer.appendChild(caret);
+                elementLabelContainer.innerHTML += `Element: &lt;${node.nodeName}&gt;`; 
+
+                header.appendChild(elementLabelContainer);
+
+                // --- Attributes / Values (Always displayed in header) ---
+
+                // Attributes
+                if (node.attributes.length > 0) {
+                    for (let i = 0; i < node.attributes.length; i++) {
+                        const attr = node.attributes[i];
+                        // Format: property: "value" per line, indented. Increased ml-4 to ml-6 for more margin.
+                        header.innerHTML += `<div class="ml-6 flex">
+                            <span class="json-key">${attr.nodeName}</span>: 
+                            <span class="json-string ml-1">"${Utils.escapeHtml(attr.nodeValue)}"</span>
+                        </div>`;
+                    }
+                }
+                
+                // Text Content
+                const textContent = node.childNodes[0] && node.childNodes[0].nodeType === 3 && node.childNodes[0].nodeValue.trim() !== '' ? node.childNodes[0].nodeValue.trim() : null;
+
+                if (textContent && node.children.length === 0) {
+                    // Simple text content (Leaf node with data). Increased ml-4 to ml-6 for more margin.
+                    header.innerHTML += `<div class="ml-6 py-0.5">
+                        <span class="text-gray-500">Value:</span> 
+                        <span class="json-string ml-1">"${Utils.escapeHtml(textContent)}"</span>
+                    </div>`;
+                }
+                
+                nodeEl.appendChild(header);
+
+                // --- Recursive Children Container (Collapsible) ---
+                if (hasElementChildren) {
+                    const childrenContainer = document.createElement('div');
+                    // Starts hidden and gets indentation
+                    childrenContainer.className = 'json-node-children hidden'; 
+                    
+                    // Populate children
+                    for (let i = 0; i < node.children.length; i++) {
+                        const childNode = node.children[i];
+                        const childEl = this.createNode(childNode);
+                        if (childEl) {
+                            childrenContainer.appendChild(childEl);
+                        }
+                    }
+                    
+                    nodeEl.appendChild(childrenContainer);
+
+                    // Click Handler
+                    header.onclick = (e) => {
+                        e.stopPropagation();
+                        const isExpanded = !childrenContainer.classList.contains('hidden');
+                        if (isExpanded) {
+                            caret.classList.remove('rotated');
+                            childrenContainer.classList.add('hidden');
+                        } else {
+                            caret.classList.add('rotated');
+                            childrenContainer.classList.remove('hidden');
+                        }
+                    };
+                }
+                
+                return nodeEl;
+            }
+
+            render(content) {
+                if (!this.container) return; this.container.innerHTML = '';
+                
+                try {
+                    const parser = new DOMParser();
+                    const xmlDoc = parser.parseFromString(content, "text/xml");
+                    
+                    // Check for XML parsing errors (parsererror element will be present if parsing fails)
+                    if (xmlDoc.getElementsByTagName("parsererror").length > 0) {
+                         this.container.innerHTML = `<div class="text-red-500 p-2 font-mono text-xs">Invalid XML Format:<br>${Utils.escapeHtml(xmlDoc.getElementsByTagName("parsererror")[0].innerText)}</div>`;
+                         return;
+                    }
+
+                    const root = document.createElement('div');
+                    root.className = 'json-tree select-text';
+
+                    // Start traversal from the document element (the actual root element)
+                    if (xmlDoc.documentElement) {
+                        root.appendChild(this.createNode(xmlDoc.documentElement));
+                    }
+
+                    this.container.appendChild(root);
+                } catch (e) { 
+                    this.container.innerHTML = `<div class="text-red-500 p-2 font-mono text-xs">XML Processing Error: ${Utils.escapeHtml(e.message)}</div>`; 
                 }
             }
             destroy() {}
@@ -862,6 +981,7 @@
                 PluginSystem.register('JSON Tree', 'fa-solid fa-code', (id, c) => new JsonPlugin(id, c));
                 PluginSystem.register('Hex Viewer', 'fa-solid fa-memory', (id, c) => new HexPlugin(id, c));
                 PluginSystem.register('MD Viewer', 'fa-brands fa-markdown', (id, c) => new MarkdownViewerPlugin(id, c));
+                PluginSystem.register('XML Viewer', 'fa-solid fa-code-xml', (id, c) => new XmlPlugin(id, c));
                 
                 UIManager.renderPluginMenu(); 
                 WorkspaceManager.init();
